@@ -55,6 +55,8 @@
 #include "init.h"
 #include "util.h"
 
+#include "vendor_init.h"
+
 using android::base::StringPrintf;
 
 #define PERSISTENT_PROPERTY_DIR  "/data/property"
