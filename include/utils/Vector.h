@@ -17,7 +17,6 @@
 #ifndef ANDROID_VECTOR_H
 #define ANDROID_VECTOR_H
 
-#include <new>
 #include <stdint.h>
 #include <sys/types.h>
 
