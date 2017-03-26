@@ -213,9 +213,10 @@ struct soc_led_color_mapping {
     int color;
 };
 
-struct soc_led_color_mapping soc_leds[3] = {
+struct soc_led_color_mapping soc_leds[4] = {
     {15, RED_LED},
-    {90, RED_LED | GREEN_LED},
+    {90, RED_LED | GREEN_LED}, // Yellow
+    {99, BLUE_LED},
     {100, GREEN_LED},
 };
 #endif
