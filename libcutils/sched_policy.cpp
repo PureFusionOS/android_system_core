@@ -51,6 +51,8 @@ static inline SchedPolicy _policy(SchedPolicy p)
 
 static pthread_once_t the_once = PTHREAD_ONCE_INIT;
 
+static int __sys_supports_timerslack = -1;
+
 // File descriptors open to /dev/cpuset/../tasks, setup by initialize, or -1 on error
 static int system_bg_cpuset_fd = -1;
 static int bg_cpuset_fd = -1;
@@ -169,6 +171,10 @@ static void __initialize() {
             }
         }
     }
+
+    char buf[64];
+    snprintf(buf, sizeof(buf), "/proc/%d/timerslack_ns", getpid());
+    __sys_supports_timerslack = !access(buf, W_OK);    
 }
 
 /*
