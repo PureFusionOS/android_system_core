@@ -45,13 +45,14 @@ static inline SchedPolicy _policy(SchedPolicy p)
 
 #define POLICY_DEBUG 0
 
+// This prctl is only available in Android kernels.
+#define PR_SET_TIMERSLACK_PID 41
+
 // timer slack value in nS enforced when the thread moves to background
 #define TIMER_SLACK_BG 40000000
 #define TIMER_SLACK_FG 50000
 
 static pthread_once_t the_once = PTHREAD_ONCE_INIT;
-
-static int __sys_supports_timerslack = -1;
 
 // File descriptors open to /dev/cpuset/../tasks, setup by initialize, or -1 on error
 static int system_bg_cpuset_fd = -1;
@@ -169,10 +170,6 @@ static void __initialize() {
             }
         }
     }
-
-    char buf[64];
-    snprintf(buf, sizeof(buf), "/proc/%d/timerslack_ns", getpid());
-    __sys_supports_timerslack = !access(buf, W_OK);    
 }
 
 /*
@@ -194,7 +191,7 @@ static int getCGroupSubsys(int tid, const char* subsys, char* buf, size_t bufLen
     FILE *fp;
 
     snprintf(pathBuf, sizeof(pathBuf), "/proc/%d/cgroup", tid);
-    if (!(fp = fopen(pathBuf, "re"))) {
+    if (!(fp = fopen(pathBuf, "r"))) {
         return -1;
     }
 
@@ -256,26 +253,24 @@ int get_sched_policy(int tid, SchedPolicy *policy)
 
     char grpBuf[32];
 
-    grpBuf[0] = '\0';
-    if (schedboost_enabled()) {
-        if (getCGroupSubsys(tid, "schedtune", grpBuf, sizeof(grpBuf)) < 0) return -1;
-    }
-    if ((grpBuf[0] == '\0') && cpusets_enabled()) {
+    if (cpusets_enabled()) {
         if (getCGroupSubsys(tid, "cpuset", grpBuf, sizeof(grpBuf)) < 0) return -1;
-    }
-    if (grpBuf[0] == '\0') {
-        *policy = SP_FOREGROUND;
-    } else if (!strcmp(grpBuf, "foreground")) {
-        *policy = SP_FOREGROUND;
-    } else if (!strcmp(grpBuf, "system-background")) {
-        *policy = SP_SYSTEM;
-    } else if (!strcmp(grpBuf, "background")) {
-        *policy = SP_BACKGROUND;
-    } else if (!strcmp(grpBuf, "top-app")) {
-        *policy = SP_TOP_APP;
+        if (grpBuf[0] == '\0') {
+            *policy = SP_FOREGROUND;
+        } else if (!strcmp(grpBuf, "foreground")) {
+            *policy = SP_FOREGROUND;
+        } else if (!strcmp(grpBuf, "background")) {
+            *policy = SP_BACKGROUND;
+        } else if (!strcmp(grpBuf, "top-app")) {
+            *policy = SP_TOP_APP;
+        } else {
+            errno = ERANGE;
+            return -1;
+        }
     } else {
-        errno = ERANGE;
-        return -1;
+        // In b/34193533, we removed bg_non_interactive cgroup, so now
+        // all threads are in FOREGROUND cgroup
+        *policy = SP_FOREGROUND;
     }
     return 0;
 }
@@ -333,31 +328,6 @@ int set_cpuset_policy(int tid, SchedPolicy policy)
     return 0;
 }
 
-static void set_timerslack_ns(int tid, unsigned long long slack) {
-    // v4.6+ kernels support the /proc/<tid>/timerslack_ns interface.
-    // TODO: once we've backported this, log if the open(2) fails.
-    if (__sys_supports_timerslack) {
-        char buf[64];
-        snprintf(buf, sizeof(buf), "/proc/%d/timerslack_ns", tid);
-        int fd = open(buf, O_WRONLY | O_CLOEXEC);
-        if (fd != -1) {
-            int len = snprintf(buf, sizeof(buf), "%llu", slack);
-            if (write(fd, buf, len) != len) {
-                SLOGE("set_timerslack_ns write failed: %s\n", strerror(errno));
-            }
-            close(fd);
-            return;
-        }
-    }
-
-    // TODO: Remove when /proc/<tid>/timerslack_ns interface is backported.
-    if ((tid == 0) || (tid == gettid())) {
-        if (prctl(PR_SET_TIMERSLACK, slack) == -1) {
-            SLOGE("set_timerslack_ns prctl failed: %s\n", strerror(errno));
-        }
-    }
-}
-
 int set_sched_policy(int tid, SchedPolicy policy)
 {
     if (tid == 0) {
@@ -370,11 +340,12 @@ int set_sched_policy(int tid, SchedPolicy policy)
     char statfile[64];
     char statline[1024];
     char thread_name[255];
+    int fd;
 
-    snprintf(statfile, sizeof(statfile), "/proc/%d/stat", tid);
+    sprintf(statfile, "/proc/%d/stat", tid);
     memset(thread_name, 0, sizeof(thread_name));
 
-    int fd = open(statfile, O_RDONLY | O_CLOEXEC);
+    fd = open(statfile, O_RDONLY);
     if (fd >= 0) {
         int rc = read(fd, statline, 1023);
         close(fd);
@@ -433,7 +404,8 @@ int set_sched_policy(int tid, SchedPolicy policy)
 
     }
 
-    set_timerslack_ns(tid, policy == SP_BACKGROUND ? TIMER_SLACK_BG : TIMER_SLACK_FG);
+    prctl(PR_SET_TIMERSLACK_PID,
+          policy == SP_BACKGROUND ? TIMER_SLACK_BG : TIMER_SLACK_FG, tid);
 
     return 0;
 }
