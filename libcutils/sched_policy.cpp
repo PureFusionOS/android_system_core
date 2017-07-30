@@ -65,7 +65,6 @@ static int bg_schedboost_fd = -1;
 static int fg_schedboost_fd = -1;
 static int ta_schedboost_fd = -1;
 
-#if defined(USE_CPUSETS) || defined(USE_SCHEDBOOST)
 /* Add tid to the scheduling group defined by the policy */
 static int add_tid_to_cgroup(int tid, int fd)
 {
@@ -100,7 +99,6 @@ static int add_tid_to_cgroup(int tid, int fd)
 
     return 0;
 }
-#endif //defined(USE_CPUSETS) || defined(USE_SCHEDBOOST)
 
 /*
     If CONFIG_CPUSETS for Linux kernel is set, "tasks" can be found under
@@ -255,26 +253,24 @@ int get_sched_policy(int tid, SchedPolicy *policy)
 
     char grpBuf[32];
 
-    grpBuf[0] = '\0';
-    if (schedboost_enabled()) {
-        if (getCGroupSubsys(tid, "schedtune", grpBuf, sizeof(grpBuf)) < 0) return -1;
-    }
-    if ((grpBuf[0] == '\0') && cpusets_enabled()) {
+    if (cpusets_enabled()) {
         if (getCGroupSubsys(tid, "cpuset", grpBuf, sizeof(grpBuf)) < 0) return -1;
-    }
-    if (grpBuf[0] == '\0') {
-        *policy = SP_FOREGROUND;
-    } else if (!strcmp(grpBuf, "foreground")) {
-        *policy = SP_FOREGROUND;
-    } else if (!strcmp(grpBuf, "system-background")) {
-        *policy = SP_SYSTEM;
-    } else if (!strcmp(grpBuf, "background")) {
-        *policy = SP_BACKGROUND;
-    } else if (!strcmp(grpBuf, "top-app")) {
-        *policy = SP_TOP_APP;
+        if (grpBuf[0] == '\0') {
+            *policy = SP_FOREGROUND;
+        } else if (!strcmp(grpBuf, "foreground")) {
+            *policy = SP_FOREGROUND;
+        } else if (!strcmp(grpBuf, "background")) {
+            *policy = SP_BACKGROUND;
+        } else if (!strcmp(grpBuf, "top-app")) {
+            *policy = SP_TOP_APP;
+        } else {
+            errno = ERANGE;
+            return -1;
+        }
     } else {
-        errno = ERANGE;
-        return -1;
+        // In b/34193533, we removed bg_non_interactive cgroup, so now
+        // all threads are in FOREGROUND cgroup
+        *policy = SP_FOREGROUND;
     }
     return 0;
 }
