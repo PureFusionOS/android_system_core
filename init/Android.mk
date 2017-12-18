@@ -92,7 +92,6 @@ LOCAL_SRC_FILES:= \
     signal_handler.cpp \
     ueventd.cpp \
     ueventd_parser.cpp \
-    vendor_init.cpp \
     watchdogd.cpp \
     vendor_init.cpp
 
